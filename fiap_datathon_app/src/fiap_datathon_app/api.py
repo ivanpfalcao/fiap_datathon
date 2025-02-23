@@ -15,8 +15,11 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
 # --- Configuration ---
 API_TOKEN = os.getenv("API_TOKEN", "your_default_api_token") # Default API token, CHANGE THIS!
 
+INITIALIZE_QDRANT = bool(os.getenv("INITIALIZE_QDRANT", "0"))
 
-news_recommender = NewsRecommender()
+news_recommender = NewsRecommender(
+    new_qdrant_collection=INITIALIZE_QDRANT
+    )
 
 # --- Data Model ---
 class Recommendation(BaseModel):
@@ -26,6 +29,13 @@ class Recommendation(BaseModel):
     top_n: Optional[int] = 1
     news_text: Optional[bool] = False
 
+class News(BaseModel):
+    page: str
+    body: str
+    issued: str
+
+class NewsList(BaseModel):
+    news_list: list[News]
 
 # --- Security Dependency ---
 async def verify_token(authorization: Optional[str] = Header(None)):
@@ -60,9 +70,20 @@ async def news_recommendation(request: Request, recommendation_data: Recommendat
 
         return {"status": "success", "recommended_news": recommendation}
     except Exception as e:
-        print(f"Recommendation error: {e}")
+        logging.info(f"Recommendation error: {e}")
         raise HTTPException(status_code=500, detail="Failed to infer")
 
+
+@app.post("/add_news/", dependencies=[Depends(verify_token)])
+async def add_news(request: Request, news_list: NewsList):
+    try:
+        news_dict = news_list.model_dump()
+
+        add_news_return = news_recommender.add_news(news_dict['news_list'])
+        return {"status": "success", "values": add_news_return}
+    except Exception as e:
+        logging.exception(e)
+        raise HTTPException(status_code=500, detail="Failed to add")
 
 @app.get("/health/")
 async def health_check():

@@ -17,6 +17,7 @@ from qdrant_client.http.models import Distance, PointStruct, CollectionParams
 from qdrant_client.http.models import HnswConfigDiff
 from huggingface_hub import login
 
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
 
 class NewsRecommender:
         def __init__(
@@ -26,9 +27,11 @@ class NewsRecommender:
             qdrant_host="http://localhost:6333",
             embedding_batch_size=100,
             qdrant_upload_batch_size=100,
+            truncation_max_length = 512,
             use_gpu=True,
             top_n = 5,
-            max_hist = 5          
+            max_hist = 5,
+            new_qdrant_collection = False     
         ):
                 """
                 Initializes the NewsRecommender.
@@ -56,13 +59,48 @@ class NewsRecommender:
                 self.qdrant_client = None
                 self.top_n = top_n
                 self.max_hist = max_hist
+                self.truncation_max_length = truncation_max_length
 
                 if self.qdrant_host == ":memory:":
                     self.qdrant_client = QdrantClient(location=self.qdrant_host, timeout=100000)
                 else:
-                    self.qdrant_client = QdrantClient(url=self.qdrant_host, timeout=100000)  
+                    self.qdrant_client = QdrantClient(url=self.qdrant_host, timeout=100000)
+
+                if (self.model is None):
+                    self.load_model()
+
+                self.embedding_dim = self.model.config.hidden_size
+
+                logging.info(f"Initializing Qdrant: {new_qdrant_collection}")
+                if (new_qdrant_collection):
+                    self._create_collection()                    
 
 
+        def _create_collection(self):
+
+            try:
+                logging.info(f"Getting collection {self.collection_name}")
+                logging.info(f"Qdrant collection size: {self.embedding_dim}")
+                self.qdrant_client.get_collection(self.collection_name)
+            except:
+                logging.info(f"Collection doesn´t exist. Creating collection {self.collection_name}")
+                self.qdrant_client.create_collection(
+                    collection_name=self.collection_name,
+                    vectors_config=models.VectorParams(
+                        size=self.embedding_dim,
+                        distance=Distance.COSINE
+                    ),
+                    hnsw_config=models.HnswConfigDiff(
+                        m=2048,
+                        ef_construct=4096,
+                        full_scan_threshold=500
+                    ),
+                    optimizers_config=models.OptimizersConfigDiff(
+                        indexing_threshold=50000,
+                        max_segment_size=100000,
+                        memmap_threshold=200000
+                    ),
+                )
 
         def load_model(self):
                 
@@ -172,4 +210,129 @@ class NewsRecommender:
 
                 full_recom[news_item.payload['original_url']] = recom_dict
 
-            return full_recom                                
+            return full_recom  
+
+        def mean_pooling(self, model_output, attention_mask):
+            """
+            Mean Pooling - Take attention mask into account for correct averaging.
+            """
+            token_embeddings = model_output[0]  # First element of model_output contains all token embeddings
+            input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+            return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
+
+
+        def _encode_sentences_in_batches(self, sentences, max_length):
+            if (self.model is None):
+                  self.load_model()
+
+            all_embeddings = []
+            total_batches = (len(sentences) + self.embedding_batch_size - 1) // self.embedding_batch_size
+
+            for start_idx in tqdm(range(0, len(sentences), self.embedding_batch_size), total=total_batches, desc="Embedding Sentences"):
+                batch_texts = sentences[start_idx : start_idx + self.embedding_batch_size]
+
+                encoded_input = self.tokenizer(
+                   batch_texts,
+                   padding=True,
+                   truncation=True,
+                   max_length=max_length,
+                   return_tensors='pt'
+                ).to(self.device)
+
+                with torch.no_grad(), torch.cuda.amp.autocast():  # Mixed precision
+                   model_output = self.model(**encoded_input)
+
+                batch_embeddings = self.mean_pooling(model_output, encoded_input['attention_mask'])
+                batch_embeddings = F.normalize(batch_embeddings, p=2, dim=1)
+
+                all_embeddings.append(batch_embeddings.cpu())
+                torch.cuda.empty_cache()  # Clear cache to free memory
+
+            return torch.cat(all_embeddings, dim=0).numpy().tolist()
+
+        def clean_text(self, text):
+            """
+            Perform basic text cleaning steps:
+            1. (Optionally) Remove HTML tags
+            2. (Optionally) Convert to lowercase
+            3. (Optionally) Remove extra whitespace
+            4. (Optionally) Remove URLs or other patterns
+            5. (Optionally) Remove punctuation or special characters
+            Customize this function as needed.
+            """
+            if not isinstance(text, str):
+                return ""
+            # You can uncomment or adapt cleaning steps as needed
+            # cleaned = re.sub(r"<.*?>", "", text)
+            # cleaned = cleaned.lower()
+            # cleaned = re.sub(r"http\S+|www\S+|https\S+", "", text)
+            # cleaned = re.sub(r"\s+", " ", cleaned).strip()
+            # cleaned = re.sub(r"[^a-zA-ZÀ-ÖÙ-öù-ÿ0-9\s.,;:!?-]", "", text)
+            # cleaned = remove_pt_stopwords(cleaned)
+            return text
+
+        def qdrant_batch_upsert(self, collection_name, points, batch_size):
+            if (self.model is None):
+                self.load_model()
+
+            if (self.qdrant_client is None):
+                self.embedding_dim = self.model.config.hidden_size
+                self._create_collection()
+
+    
+            logging.info(f"Batch loading data into Qdrant collection {collection_name}. Batch size: {batch_size}")
+            for i in range(0, len(points), batch_size):
+                try:
+                    batch = points[i : i + batch_size]
+                    self.qdrant_client.upsert(collection_name=collection_name, points=batch)
+                except Exception as e:
+                    logging.info(f"Error: {e}. Continuing")
+
+
+        def add_news(self, add_news_list: list[dict]):
+            """
+            Adds news articles to the Qdrant database.
+            Expects 'page' (URL), 'body' (text), and 'issued' (date) columns.
+            """
+
+            logging.info(f"Hashing page URL")
+            clean_text_list = []
+            for i in range(len(add_news_list)):
+                cleaned_news = self.clean_text(add_news_list[i]["body"])
+                add_news_list[i]["clean_text"] = cleaned_news
+                add_news_list[i]['hash_str'] = self.hash_url_to_string(add_news_list[i]['page'])
+
+                clean_text_list.append(cleaned_news)
+
+
+            logging.info(f"Starting embeddings generation")
+
+            embeddings = self._encode_sentences_in_batches(clean_text_list, self.truncation_max_length)
+            logging.info(f"Embeddings generation completed")
+
+            points = []
+
+            news_hash_list = []
+            for i in range(len(add_news_list)):
+                point_id = add_news_list[i]['hash_str']
+                point_vector = embeddings[i]
+                payload = {
+                   "text": add_news_list[i]['clean_text'],
+                   "original_url": add_news_list[i]['page'],
+                   #"news_date": int(add_news_list[i]['issued'].timestamp())
+                   "news_date": datetime.fromisoformat(add_news_list[i]['issued'].replace('Z', '-03:00')).timestamp()
+
+                   
+                }
+                points.append(PointStruct(id=point_id, vector=point_vector, payload=payload))
+
+                news_hash_list.append({
+                    "original_url": add_news_list[i]['page'],
+                    "hashed_url": add_news_list[i]['hash_str']
+                })
+
+            logging.info(f"Starting Qdrant upsert")
+            self.qdrant_batch_upsert(collection_name=self.collection_name, points=points, batch_size=self.qdrant_upload_batch_size)
+            logging.info(f"Qdrant upsert ended")      
+
+            return news_hash_list                                                   

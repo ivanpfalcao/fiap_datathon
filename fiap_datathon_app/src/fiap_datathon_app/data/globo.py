@@ -1,8 +1,10 @@
-import pandas as pd
-import numpy as np
+import requests
+import json
 
 import logging
 import duckdb
+
+import pandas as pd
 
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
@@ -170,3 +172,55 @@ class GloboData():
         """
         result = self.conn.execute(query).fetchdf()
         return result
+    
+    def add_news_from_dataframe(self, input_file: str, url: str, api_key: str, news_per_request = 10):
+        """
+        Envia notícias para a API em lotes de 10 a partir de um DataFrame.
+
+        Args:
+            input_file (str): Caminho para o arquivo parquet com os dados das notícias.
+            url (str): URL da API para enviar as notícias.
+            api_key (str): Chave de API para autenticação.
+        """
+
+        try:
+            input_df = pd.read_parquet(input_file)
+        except FileNotFoundError:
+            print(f"Erro: Arquivo não encontrado em '{input_file}'")
+            return
+        except Exception as e:
+            print(f"Erro ao ler o arquivo: {e}")
+            return
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+
+        for i in range(0, len(input_df), news_per_request):
+            batch_df = input_df[i:i + news_per_request]
+            news_list = []
+
+            for _, row in batch_df.iterrows():
+                # Convert timestamp to string in the required format
+                issued_str = row["issued"].strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+                news_item = {
+                    "page": row["page"],
+                    "issued": issued_str,
+                    "body": row["body"],
+                }
+                news_list.append(news_item)
+
+            data = {"news_list": news_list}
+
+            try:
+                response = requests.post(url, headers=headers, data=json.dumps(data))
+                response.raise_for_status()
+                print(json.dumps(response.json()))
+            except requests.exceptions.RequestException as e:
+                print(f"Erro ao enviar lote de notícias: {e}")
+            except json.JSONDecodeError:
+                print("Resposta da API não é um JSON válido.")
+                print(response.text)
+

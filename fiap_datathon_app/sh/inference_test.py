@@ -2,7 +2,7 @@ import requests
 import json
 
 URL = "http://127.0.0.1:8000/recommendation/"
-API_KEY = "your_default_api_token"
+API_KEY = "dsafadsflkfjgoirvklvfdiodrjfodflk"
 
 headers = {
     "Authorization": f"Bearer {API_KEY}",

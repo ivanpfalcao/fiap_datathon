@@ -173,4 +173,6 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
-fiap_datathon_app/sh/output/*
+output/*
+
+challenge-webmedia-e-globo-2023/*

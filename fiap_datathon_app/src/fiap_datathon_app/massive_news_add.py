@@ -2,7 +2,7 @@ import os
 
 from fiap_datathon_app.data.globo import *
 
-DATA_PREP_OUTPUT_FOLDER = os.path.join(os.getenv("DATA_PREP_OUTPUT_FOLDER"), 'itens.parquet')
+DATA_PREP_OUTPUT_FOLDER = os.getenv("INPUT_ITEMS_FILE")
 API_URL = os.getenv("API_URL")
 API_KEY = os.getenv("API_KEY")
 

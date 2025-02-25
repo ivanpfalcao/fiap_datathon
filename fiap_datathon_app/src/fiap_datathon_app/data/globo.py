@@ -6,6 +6,8 @@ import duckdb
 
 import pandas as pd
 
+from datetime import datetime, timedelta, timezone
+
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
 
@@ -224,3 +226,111 @@ class GloboData():
                 print("Resposta da API não é um JSON válido.")
                 print(response.text)
 
+    def call_inference_api(self
+                        , viewed_news: list[str]
+                        , init_time: str
+                        , end_time: str
+                        , top_n=2
+                        , news_text=False
+                        , url='http://127.0.0.1:8000/recommendation/'
+                        , api_key='dsafadsflkfjgoirvklvfdiodrjfodflk'
+        ) -> dict:
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+
+        data = {
+            "viewed_news": viewed_news
+            #"init_time": "2020-12-31T00:00:00Z",
+            #"end_time": "2026-12-31T00:00:00Z"
+            ,"init_time": init_time
+            ,"end_time": end_time           
+            ,"top_n": top_n
+            ,"news_text": news_text
+        }
+
+        try:
+            response = requests.post(url, headers=headers, data=json.dumps(data))
+            response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
+
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            logging.info(f"An error occurred: {e}")
+            return None
+        except json.JSONDecodeError:
+            logging.info("Response is not valid JSON")
+            logging.info(response.text) 
+            return None
+
+    def massive_inference_tests(self
+            , opt_input_file:str = None
+            , init_index = 0
+            , end_index = 100
+            , url='http://127.0.0.1:8000/recommendation/'
+            , api_key='dsafadsflkfjgoirvklvfdiodrjfodflk'
+            , number_of_days_before = 45
+            , number_of_days_after = 1
+            , top_n = 2
+            , news_text = False
+            , max_news_to_infer = 5
+            
+            ):
+        """
+        Envia notícias para a API em lotes de 10 a partir de um DataFrame.
+
+        Args:
+            input_file (str): Caminho para o arquivo parquet com os dados das notícias.
+            url (str): URL da API para enviar as notícias.
+            api_key (str): Chave de API para autenticação.
+        """
+
+        if (opt_input_file is None):
+            input_file = f'{self.output_folder}/treino.parquet'
+        else: 
+            input_file = opt_input_file
+
+        try:
+            input_df = pd.read_parquet(input_file).iloc[init_index:end_index]
+        except FileNotFoundError:
+            print(f"Erro: Arquivo não encontrado em '{input_file}'")
+            return
+        except Exception as e:
+            print(f"Erro ao ler o arquivo: {e}")
+            return
+
+        with open(f'{self.output_folder}/inferences.json', 'w') as out_file:
+            for _, row in input_df.iterrows():
+                try:
+
+                    #un_history = row['un_history']
+                    view_ts = float(row['test_timestamp_list'][0])
+                    reference_date = datetime.fromtimestamp(view_ts / 1000.0, tz=timezone.utc)
+
+                    logging.info(f'Processing user row... reference date: {reference_date}')
+
+                    # Example: 10-day window behind, 1-day window ahead
+                    start_date = (reference_date - timedelta(days=number_of_days_before)).strftime('%Y-%m-%dT%H:%M:%SZ')
+                    end_date = (reference_date + timedelta(days=number_of_days_after)).strftime('%Y-%m-%dT%H:%M:%SZ')  
+
+                    logging.info(f'Init Date: {start_date}')
+                    logging.info(f'End Date: {end_date}')
+
+                    test_list = row['history_train_list'].tolist()[-max_news_to_infer:-1]
+                    inference_dict = self.call_inference_api(
+                        viewed_news = test_list
+                        , init_time = start_date
+                        , end_time = end_date
+                        , top_n=top_n
+                        , news_text=news_text
+                        , url=url
+                        , api_key=api_key
+                    )
+
+                    #logging.info(f'Inference: {inference_dict}')
+                    inference_json = json.dumps(inference_dict)
+                    out_file.write(inference_json + '\n')
+                except requests.exceptions.RequestException as e:
+                    print(f"Erro ao enviar lote de notícias: {e}")
+                except json.JSONDecodeError:
+                    print("Resposta da API não é um JSON válido.")                           

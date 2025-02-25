@@ -16,9 +16,23 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
 API_TOKEN = os.getenv("API_TOKEN", "your_default_api_token") # Default API token, CHANGE THIS!
 
 INITIALIZE_QDRANT = bool(os.getenv("INITIALIZE_QDRANT", "0"))
+QDRANT_COLLECTION_NAME = os.getenv("QDRANT_COLLECTION_NAME", "news_collection")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-distilroberta-v1")
+QDRANT_HOST = os.getenv("QDRANT_HOST", "http://localhost:6333")
+EMBEDDING_BATCH_SIZE = int(os.getenv("EMBEDDING_BATCH_SIZE", "100"))
+QDRANT_UPLOAD_BATCH_SIZE= int(os.getenv("QDRANT_UPLOAD_BATCH_SIZE", "100"))
+TRUNCATION_MAX_LENGTH=int(os.getenv("TRUNCATION_MAX_LENGTH", "512"))
+USE_GPU = bool(os.getenv("USE_GPU", "1"))
 
-news_recommender = NewsRecommender(
-    new_qdrant_collection=INITIALIZE_QDRANT
+news_recommender = NewsRecommender(    
+        collection_name=QDRANT_COLLECTION_NAME,
+        embedding_model=EMBEDDING_MODEL,
+        qdrant_host=QDRANT_HOST,
+        embedding_batch_size=EMBEDDING_BATCH_SIZE,
+        qdrant_upload_batch_size=QDRANT_UPLOAD_BATCH_SIZE,
+        truncation_max_length=TRUNCATION_MAX_LENGTH,
+        use_gpu=USE_GPU,
+        new_qdrant_collection=INITIALIZE_QDRANT     
     )
 
 # --- Data Model ---

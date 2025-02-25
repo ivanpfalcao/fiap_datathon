@@ -1,0 +1,123 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: news-recommender-api-token
+type: Opaque
+stringData:
+  API_TOKEN: dsafadsflkfjgoirvklvfdiodrjfodflk
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: news-recommender
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: news-recommender
+  template:
+    metadata:
+      labels:
+        app: news-recommender
+    spec:
+      containers:
+      - name: news-recommender
+        image: docker.io/ivanpfalcao/news-recomender:1.0.0
+        ports:
+        - containerPort: 8080
+        env:
+        - name: INITIALIZE_QDRANT
+          value: "0"
+        - name: API_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: news-recommender-api-token
+              key: API_TOKEN
+        - name: QDRANT_COLLECTION_NAME
+          value: "news_collection"
+        - name: EMBEDDING_MODEL
+          value: "sentence-transformers/all-distilroberta-v1"
+        - name: QDRANT_HOST
+          value: "http://qdrant-service:6333"
+        - name: EMBEDDING_BATCH_SIZE
+          value: "100"
+        - name: QDRANT_UPLOAD_BATCH_SIZE
+          value: "100"
+        - name: TRUNCATION_MAX_LENGTH
+          value: "512"
+        - name: USE_GPU
+          value: "1"
+        resources:
+          requests:
+            nvidia.com/gpu: 1
+            cpu: "1"
+            memory: "1Gi"
+          limits:
+            nvidia.com/gpu: 1
+            cpu: "6"
+            memory: "10Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: news-recommender-service
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 8000
+    targetPort: 8000
+  selector:
+    app: news-recommender
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: qdrant-service
+spec:
+  type: ClusterIP
+  ports:
+    - port: 6333
+      targetPort: 6333
+      protocol: TCP
+  selector:
+    app: qdrant
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: qdrant
+spec:
+  serviceName: "qdrant-service"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: qdrant
+  template:
+    metadata:
+      labels:
+        app: qdrant
+    spec:
+      containers:
+      - name: qdrant
+        image: qdrant/qdrant:v1.12.6
+        ports:
+        - containerPort: 6333
+        resources:
+          requests:
+            cpu: "1"
+            memory: "1Gi"
+          limits:
+            cpu: "4"
+            memory: "8Gi"
+        volumeMounts:
+        - name: qdrant-data
+          mountPath: /qdrant/storage
+  volumeClaimTemplates:
+  - metadata:
+      name: qdrant-data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 1Gi

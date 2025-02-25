@@ -1,0 +1,1 @@
+docker run -d -p 6333:6333 --name qdrant qdrant/qdrant:v1.12.6

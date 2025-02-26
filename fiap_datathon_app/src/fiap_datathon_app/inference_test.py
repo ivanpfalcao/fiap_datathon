@@ -4,6 +4,7 @@ import os
 from fiap_datathon_app.data.globo import *
 
 DATA_PREP_OUTPUT_FOLDER = os.getenv("DATA_PREP_OUTPUT_FOLDER")
+INPUT_INF_FILE = os.getenv("INPUT_INF_FILE", None)
 API_URL = os.getenv("API_URL")
 API_KEY = os.getenv("API_KEY")
 
@@ -21,7 +22,8 @@ MAX_NEWS_TO_INFER = int(os.getenv("MAX_NEWS_TO_INFER", 5))
 gb = GloboData(DATA_PREP_OUTPUT_FOLDER)
 
 gb.massive_inference_tests(
-    init_index = INIT_INDEX
+    opt_input_file=INPUT_INF_FILE
+    , init_index = INIT_INDEX
     , end_index = END_INDEX
     , url=API_URL
     , api_key=API_KEY

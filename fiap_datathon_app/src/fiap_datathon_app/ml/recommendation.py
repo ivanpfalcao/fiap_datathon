@@ -31,7 +31,8 @@ class NewsRecommender:
             use_gpu=True,
             top_n = 5,
             max_hist = 5,
-            new_qdrant_collection = False     
+            new_qdrant_collection = False,
+            first_news_collection_name ="first_news_collection"  
         ):
                 """
                 Initializes the NewsRecommender.
@@ -52,6 +53,7 @@ class NewsRecommender:
                 self.use_gpu = use_gpu
 
                 self.collection_name = collection_name 
+                self.first_news_collection_name = first_news_collection_name
 
                 self.model = None
 
@@ -101,6 +103,26 @@ class NewsRecommender:
                         memmap_threshold=200000
                     ),
                 )
+
+            try:
+                logging.info(f"Getting collection {self.first_news_collection_name}")
+                self.qdrant_client.get_collection(self.first_news_collection_name)
+            except:
+                logging.info(f"Collection doesn´t exist. Creating collection {self.first_news_collection_name}")
+                self.qdrant_client.create_collection(
+                    collection_name=self.first_news_collection_name,
+                    vectors_config={},
+                    hnsw_config=models.HnswConfigDiff(
+                        m=2048,
+                        ef_construct=4096,
+                        full_scan_threshold=500
+                    ),
+                    optimizers_config=models.OptimizersConfigDiff(
+                        indexing_threshold=50000,
+                        max_segment_size=100000,
+                        memmap_threshold=200000
+                    ),
+                )               
 
         def load_model(self):
                 
@@ -335,4 +357,36 @@ class NewsRecommender:
             self.qdrant_batch_upsert(collection_name=self.collection_name, points=points, batch_size=self.qdrant_upload_batch_size)
             logging.info(f"Qdrant upsert ended")      
 
-            return news_hash_list                                                   
+            return news_hash_list  
+
+        def add_first_news(self, add_first_news_list: list[dict]):
+            """
+            Adds news articles to the Qdrant database.
+            Expects 'page' (URL), 'body' (text), and 'issued' (date) columns.
+            """
+
+            logging.info(f"Hashing page URL")
+            for i in range(len(add_first_news_list)):
+                add_first_news_list[i]['hash_str'] = self.hash_url_to_string(add_first_news_list[i]['page'])
+
+            points = []
+
+            news_hash_list = []
+            for i in range(len(add_first_news_list)):
+                point_id = add_first_news_list[i]['hash_str']
+                payload = {
+                   "original_url": add_first_news_list[i]['page'],
+                   "viewed": datetime.fromisoformat( add_first_news_list[i]['viewed'].replace('Z', '-03:00')).timestamp()
+                }
+                points.append(PointStruct(id=point_id, vector={}, payload=payload))
+
+                news_hash_list.append({
+                    "original_url": add_first_news_list[i]['page'],
+                    "hashed_url": add_first_news_list[i]['hash_str']
+                })
+
+            logging.info(f"Starting Qdrant upsert")
+            self.qdrant_batch_upsert(collection_name=self.first_news_collection_name, points=points, batch_size=self.qdrant_upload_batch_size)
+            logging.info(f"Qdrant upsert ended")      
+
+            return news_hash_list                                                         

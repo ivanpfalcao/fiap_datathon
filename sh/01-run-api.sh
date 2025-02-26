@@ -1,8 +1,8 @@
-export INITIALIZE_QDRANT=0
+export INITIALIZE_QDRANT=1
 export API_TOKEN="dsafadsflkfjgoirvklvfdiodrjfodflk"
 export QDRANT_COLLECTION_NAME="news_collection"
-export EMBEDDING_MODEL"sentence-transformers/all-distilroberta-v1"
-export QDRANT_HOST"http://localhost:6333"
+export EMBEDDING_MODEL="sentence-transformers/all-distilroberta-v1"
+export QDRANT_HOST="http://localhost:6333"
 export EMBEDDING_BATCH_SIZE"100"
 export QDRANT_UPLOAD_BATCH_SIZE="100"
 export TRUNCATION_MAX_LENGTH="512"

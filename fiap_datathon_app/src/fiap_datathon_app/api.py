@@ -48,8 +48,15 @@ class News(BaseModel):
     body: str
     issued: str
 
+class FirstNews(BaseModel):
+    page: str
+    viewed: str
+
 class NewsList(BaseModel):
     news_list: list[News]
+
+class FirstNewsList(BaseModel):
+    first_news_list: list[FirstNews]    
 
 # --- Security Dependency ---
 async def verify_token(authorization: Optional[str] = Header(None)):
@@ -98,6 +105,18 @@ async def add_news(request: Request, news_list: NewsList):
     except Exception as e:
         logging.exception(e)
         raise HTTPException(status_code=500, detail="Failed to add")
+
+@app.post("/add_first_news/", dependencies=[Depends(verify_token)])
+async def add_first_news(request: Request, first_news_list: FirstNewsList):
+    try:
+        news_dict = first_news_list.model_dump()
+
+        add_news_return = news_recommender.add_first_news(news_dict['first_news_list'])
+        return {"status": "success", "values": add_news_return}
+    except Exception as e:
+        logging.exception(e)
+        raise HTTPException(status_code=500, detail="Failed to add")
+    
 
 @app.get("/health/")
 async def health_check():

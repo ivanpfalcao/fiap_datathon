@@ -83,7 +83,10 @@ class GloboData():
         prep_treino_df.to_parquet(f'{self.output_folder}/treino.parquet')     
 
         unnest_treino_df = self.prepare_unnested_treino(prep_treino_df)
-        unnest_treino_df.to_parquet(f'{self.output_folder}/unnested_treino.parquet')     
+        unnest_treino_df.to_parquet(f'{self.output_folder}/unnested_treino.parquet')
+
+        first_news_df = self.prepare_first_news(prep_treino_df)
+        first_news_df.to_parquet(f'{self.output_folder}/first_news.parquet')
 
 
     def prepare_unnested_treino(self, prep_treino_df):
@@ -99,6 +102,29 @@ class GloboData():
         logging.info(f"Unnested treino generated")
         return unnested_treino_df
     
+    def prepare_first_news(self, prep_treino_df):
+        query = f"""
+            WITH dense_table AS (
+                SELECT 
+                    history_list[1] AS first_news,
+                    timestampHistory_list[1] AS first_news_timestamp,
+                    DENSE_RANK() OVER (PARTITION BY history_list ORDER BY timestampHistory_list[1] desc) AS dense_rank
+                FROM 
+                    prep_treino_df
+                ORDER BY 
+                    first_news desc, dense_rank asc
+            )
+            SELECT
+            first_news
+            ,first_news_timestamp
+            FROM dense_table
+            WHERE dense_rank=1
+        """
+        first_news = self.conn.execute(query).fetchdf()
+        logging.info(f"First news generated")
+        return first_news
+
+
     def load_itens(self, itens_file_path):
         logging.info(f"Loading csv from {itens_file_path}")
         query = f"""

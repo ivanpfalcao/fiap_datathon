@@ -122,7 +122,12 @@ class NewsRecommender:
                         max_segment_size=100000,
                         memmap_threshold=200000
                     ),
-                )               
+                ) 
+                self.qdrant_client.create_payload_index(
+                    collection_name=self.first_news_collection_name,
+                    field_name="viewed",
+                    field_schema=models.PayloadSchemaType.FLOAT,
+                )                             
 
         def load_model(self):
                 
@@ -156,7 +161,23 @@ class NewsRecommender:
             news_text = False
         ):
             if len(viewed_news_urls) == 0:
-                return []
+                scroll_result, _ = self.qdrant_client.scroll(
+                    collection_name="first_news_collection",
+                    order_by=models.OrderBy(
+                        key="viewed",
+                        direction="desc"
+                    ),
+                    limit=5,
+                )
+
+                first_views_list = []
+                # Print the retrieved points
+                for point in scroll_result:
+                    first_views_list.append(point.payload['original_url'])
+
+                viewed_news_urls = first_views_list
+
+
 
             viewed_news_hashes = [self.hash_url_to_string(url) for url in viewed_news_urls]
 

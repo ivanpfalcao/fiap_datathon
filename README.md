@@ -80,6 +80,20 @@ Ensure you have the following installed:
    ```sh
    bash k8s/01-deploy-news-recommender.sh
    ```
+## Recommendation API through curl
+```sh
+curl -X POST "http://127.0.0.1:8000/recommendation/" \
+	-H "Authorization: Bearer dsafadsflkfjgoirvklvfdiodrjfodflk" \
+	-H "Content-Type: application/json" \
+	-d '{
+		"viewed_news": [],
+		"init_time": "2020-12-31T00:00:00Z",
+		"end_time": "2026-12-31T00:00:00Z",
+		"top_n": 2,
+		"news_text": true
+	}'
+
+```
 
 ## Results
 
